@@ -2,10 +2,12 @@ mod consts;
 mod walk_dir;
 
 use consts::*;
+use hex::{decode, encode};
 use std::{
     collections::{HashMap, HashSet},
-    env::{current_dir, var},
-    fs::{copy, create_dir, exists, read_dir, read_to_string, write},
+    env::var,
+    fs::{copy, create_dir, exists, read, read_dir, write},
+    iter::{repeat, zip},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -17,12 +19,18 @@ enum Mode {
 }
 
 #[derive(Debug)]
+enum Change {
+    Update(u8),
+    Delete,
+}
+
+#[derive(Debug)]
 struct Commit {
-    new_files: Vec<PathBuf>,
-    removed_files: Vec<PathBuf>,
-    new_dirs: Vec<PathBuf>,
-    removed_dirs: Vec<PathBuf>,
-    changed_files: HashMap<PathBuf, Vec<(usize, String)>>,
+    new_files: HashSet<PathBuf>,
+    removed_files: HashSet<PathBuf>,
+    new_dirs: HashSet<PathBuf>,
+    removed_dirs: HashSet<PathBuf>,
+    changed_files: HashMap<PathBuf, Vec<(usize, Change)>>,
 }
 
 impl Commit {
@@ -44,18 +52,14 @@ impl Commit {
         let new_dirs = current_dirs
             .difference(&initial_dirs)
             .cloned()
-            .collect::<Vec<_>>();
+            .collect::<HashSet<_>>();
         let removed_dirs = initial_dirs
             .difference(&current_dirs)
             .cloned()
-            .collect::<Vec<_>>();
+            .collect::<HashSet<_>>();
 
         let mut current_files = HashSet::new();
         walk_dir(CURRENT_DIR.into(), &mut current_files, WalkMethod::Files);
-        let current_files = current_files
-            .iter()
-            .map(|x| x.strip_prefix(CURRENT_DIR).unwrap().to_path_buf())
-            .collect::<HashSet<_>>();
 
         let mut initial_files = HashSet::new();
         walk_dir(
@@ -63,31 +67,75 @@ impl Commit {
             &mut initial_files,
             WalkMethod::Files,
         );
+
+        let current_files = current_files
+            .iter()
+            .map(|x| x.strip_prefix(CURRENT_DIR).unwrap().to_path_buf())
+            .collect::<HashSet<_>>();
+
         let initial_files = initial_files
             .iter()
             .map(|x| x.strip_prefix(POD_DIR).unwrap().to_path_buf())
             .collect::<HashSet<_>>();
 
-        let new_files = current_files
-            .difference(&initial_files)
-            .cloned()
-            .collect::<Vec<_>>();
-
         let removed_files = initial_files
             .difference(&current_files)
             .cloned()
-            .collect::<Vec<_>>();
+            .collect::<HashSet<_>>();
 
-        let mut changed_files = HashMap::with_capacity(new_files.len());
-        for file in &new_files {
-            let content = read_to_string(file).unwrap();
+        let mut new_files = HashSet::new();
+        let mut changed_files = HashMap::new();
 
-            let changes = content
-                .lines()
+        for file in &current_files {
+            changed_files.insert(file.clone(), Vec::new());
+            if initial_files.contains(file) {
+                let current_content = read(PathBuf::from(CURRENT_DIR).join(file)).unwrap();
+                let initial_content = read(PathBuf::from(POD_DIR).join(file)).unwrap();
+
+                for (index, (current_line, initial_line)) in zip(
+                    current_content
+                        .iter()
+                        .map(|line| Some(line))
+                        .chain(repeat(None).take(
+                            (initial_content.len() as isize - current_content.len() as isize).max(0)
+                                as usize,
+                        )),
+                    initial_content
+                        .iter()
+                        .map(|line| Some(line))
+                        .chain(repeat(None).take(
+                            (current_content.len() as isize - initial_content.len() as isize).max(0)
+                                as usize,
+                        )),
+                )
                 .enumerate()
-                .map(|(index, line)| (index, line.to_string()))
-                .collect::<Vec<_>>();
-            changed_files.insert(file.clone(), changes);
+                {
+                    changed_files.entry(file.clone()).and_modify(
+                        |changes: &mut Vec<(usize, Change)>| match current_line {
+                            Some(lhs) => {
+                                if match initial_line {
+                                    Some(rhs) => lhs != rhs,
+                                    None => true,
+                                } {
+                                    changes.push((index, Change::Update(*lhs)))
+                                }
+                            }
+                            None => changes.push((index, Change::Delete)),
+                        },
+                    );
+                }
+            } else {
+                let content = read(PathBuf::from(CURRENT_DIR).join(file)).unwrap();
+
+                let changes = content
+                    .iter()
+                    .enumerate()
+                    .map(|(index, line)| (index, Change::Update(*line)))
+                    .collect::<Vec<_>>();
+
+                changed_files.insert(file.clone(), changes);
+                new_files.insert(file.clone());
+            }
         }
 
         Commit {
@@ -155,42 +203,66 @@ fn main() {
 
             let commit = Commit::new();
 
-            let dirs_list = commit
-                .removed_dirs
-                .iter()
-                .map(|dir| format!("- {}\n", dir.to_string_lossy()))
-                .chain(
-                    commit
-                        .new_dirs
+            // Handle directories
+            if !commit.removed_dirs.is_empty() || !commit.new_dirs.is_empty() {
+                let dirs_list = commit
+                    .removed_dirs
+                    .iter()
+                    .map(|dir| format!("- {}\n", dir.to_string_lossy()))
+                    .chain(
+                        commit
+                            .new_dirs
+                            .iter()
+                            .map(|dir| format!("+ {}\n", dir.to_string_lossy())),
+                    )
+                    .collect::<String>();
+
+                write(commit_dir_path.join("dirs"), dirs_list).unwrap();
+            }
+
+            // Handle files
+            if !commit.removed_files.is_empty() || !commit.new_files.is_empty() {
+                let files_list = commit
+                    .removed_files
+                    .iter()
+                    .map(|file| format!("- {}\n", file.to_string_lossy()))
+                    .chain(
+                        commit
+                            .new_files
+                            .iter()
+                            .map(|file| format!("+ {}\n", file.to_string_lossy())),
+                    )
+                    .collect::<String>();
+
+                write(commit_dir_path.join(FILES_DIR), files_list).unwrap();
+            }
+
+            // Handle changes in files
+            if !commit.changed_files.is_empty() {
+                let changes_dir_path = Path::new(&commit_dir_path).join(Path::new(CHANGES_DIR));
+                if !exists(&changes_dir_path).unwrap() {
+                    create_dir(&changes_dir_path).unwrap();
+                }
+
+                for (name, changes) in &commit.changed_files {
+                    let changes_list = changes
                         .iter()
-                        .map(|dir| format!("+ {}\n", dir.to_string_lossy())),
-                )
-                .collect::<String>();
-
-            write(commit_dir_path.join("dirs"), dirs_list).unwrap();
-
-            let files_list = commit
-                .removed_files
-                .iter()
-                .map(|file| format!("- {}\n", file.to_string_lossy()))
-                .chain(
-                    commit
-                        .new_files
-                        .iter()
-                        .map(|file| format!("+ {}\n", file.to_string_lossy())),
-                )
-                .collect::<String>();
-
-            write(commit_dir_path.join("files"), files_list).unwrap();
+                        .map(|(index, line)| match line {
+                            Change::Update(line) => {
+                                format!("{} {}\n", index, line)
+                            }
+                            Change::Delete => {
+                                format!("- {}\n", index)
+                            }
+                        })
+                        .collect::<String>();
+                    write(
+                        changes_dir_path.join(encode(name.to_string_lossy().to_string())),
+                        changes_list,
+                    )
+                    .unwrap();
+                }
+            }
         }
     }
-    // let pod = Pod {
-    //     contents: PodNode::Dir(Pod::create(&current_dir().unwrap())),
-    // };
-
-    // let mut slice = Vec::new();
-    // let length = bincode::encode_into_slice(&pod, &mut slice, bincode::config::standard()).unwrap();
-    //
-    // let slice = &slice[..length];
-    // println!("Bytes written: {:?}", slice);
 }
