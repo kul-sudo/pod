@@ -3,11 +3,13 @@ mod consts;
 mod walk_dir;
 
 use crate::commit::{Change, Commit};
+use crate::walk_dir::{WalkMethod, walk_dir};
 use consts::*;
 use hex::encode;
 use std::{
+    collections::HashSet,
     env::var,
-    fs::{copy, create_dir, exists, read_dir, write},
+    fs::{copy, create_dir, create_dir_all, exists, read_dir, write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -17,19 +19,14 @@ enum Mode {
     Commit,
 }
 
-fn create_pod(source: PathBuf, dir: PathBuf) {
-    let content = read_dir(source).unwrap().collect::<Vec<_>>();
-    create_dir(&dir).unwrap();
-    for entry in content {
-        let entry = entry.unwrap();
-        let file_type = entry.file_type().unwrap();
-        let path = entry.path();
+fn create_pod() {
+    let mut current_files = HashSet::new();
+    walk_dir(CURRENT_DIR.into(), &mut current_files, WalkMethod::Files);
 
-        if file_type.is_dir() {
-            create_pod(path.clone(), dir.join(entry.file_name()));
-        } else {
-            copy(path.clone(), dir.join(entry.file_name())).unwrap();
-        }
+    for file in &current_files {
+        let dest = PathBuf::from(POD_DIR).join(file.strip_prefix(CURRENT_DIR).unwrap());
+        create_dir_all(dest.parent().unwrap()).unwrap();
+        copy(file, dest).unwrap();
     }
 }
 
@@ -53,7 +50,7 @@ fn main() {
 
     match mode {
         Mode::Init => {
-            create_pod(CURRENT_DIR.into(), POD_DIR.into());
+            create_pod();
         }
         Mode::Commit => {
             let commits_dir_path = Path::new(POD_DIR).join(Path::new(COMMITS_DIR));
@@ -112,6 +109,9 @@ fn main() {
                 if !exists(&changes_dir_path).unwrap() {
                     create_dir(&changes_dir_path).unwrap();
                 }
+                //
+                // dbg!(&commit.changed_files);
+                // dbg!(commit.changed_files.keys().collect::<Vec<_>>());
 
                 for (name, changes) in &commit.changed_files {
                     let changes_list = changes

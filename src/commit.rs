@@ -7,13 +7,12 @@ use std::{
     path::PathBuf,
 };
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub enum Change {
     Update(u8),
     Delete,
 }
 
-#[derive(Debug)]
 pub struct Commit {
     pub new_files: HashSet<PathBuf>,
     pub removed_files: HashSet<PathBuf>,
@@ -76,7 +75,6 @@ impl Commit {
         let mut changed_files = HashMap::new();
 
         for file in &current_files {
-            changed_files.insert(file.clone(), Vec::new());
             if initial_files.contains(file) {
                 let current_content = read(PathBuf::from(CURRENT_DIR).join(file)).unwrap();
                 let initial_content = read(PathBuf::from(POD_DIR).join(file)).unwrap();
@@ -95,19 +93,26 @@ impl Commit {
                 )
                 .enumerate()
                 {
-                    changed_files.entry(file.clone()).and_modify(
-                        |changes: &mut Vec<(usize, Change)>| match current_line {
-                            Some(lhs) => {
-                                if match initial_line {
-                                    Some(rhs) => lhs != rhs,
-                                    None => true,
-                                } {
-                                    changes.push((index, Change::Update(*lhs)))
-                                }
+                    let action = match current_line {
+                        Some(lhs) => {
+                            if match initial_line {
+                                Some(rhs) => lhs != rhs,
+                                None => true,
+                            } {
+                                (index, Change::Update(*lhs))
+                            } else {
+                                continue;
                             }
-                            None => changes.push((index, Change::Delete)),
-                        },
-                    );
+                        }
+                        None => (index, Change::Delete),
+                    };
+
+                    changed_files
+                        .entry(file.clone())
+                        .and_modify(|changes: &mut Vec<(usize, Change)>| {
+                            changes.push(action.clone())
+                        })
+                        .or_insert(vec![action]);
                 }
             } else {
                 let content = read(PathBuf::from(CURRENT_DIR).join(file)).unwrap();

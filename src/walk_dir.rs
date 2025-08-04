@@ -12,8 +12,10 @@ pub fn walk_dir(dir: PathBuf, data: &mut HashSet<PathBuf>, method: WalkMethod) {
 }
 
 fn walk_dir_recursive(dir: PathBuf, data: &mut HashSet<PathBuf>, method: WalkMethod) {
-    dbg!(&dir);
-    if !IGNORE.contains(dir.file_name().unwrap()) {
+    if match dir.file_name() {
+        Some(name) => !IGNORE.contains(name),
+        None => true,
+    } {
         for entry in read_dir(dir).unwrap() {
             let entry = entry.unwrap();
             let file_type = entry.file_type().unwrap();
