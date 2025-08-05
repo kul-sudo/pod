@@ -1,12 +1,12 @@
-use std::{collections::HashSet, ffi::OsString, fs::read_to_string, sync::LazyLock};
+use std::{collections::HashSet, ffi::OsString, fs::read_to_string, path::PathBuf, sync::LazyLock};
 
-pub const CURRENT_DIR: &str = "./";
+pub static CURRENT_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("./"));
 
-pub const POD_DIR: &str = ".pod";
-pub const POD_IGNORE_FILE: &str = ".podignore";
+pub static POD_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from(".pod"));
+pub static POD_IGNORE_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from(".podignore"));
 
 pub static IGNORE: LazyLock<HashSet<OsString>> = LazyLock::new(|| {
-    let content = read_to_string(POD_IGNORE_FILE).unwrap();
+    let content = read_to_string(&*POD_IGNORE_FILE).unwrap();
 
     content
         .lines()
@@ -14,7 +14,19 @@ pub static IGNORE: LazyLock<HashSet<OsString>> = LazyLock::new(|| {
         .collect::<HashSet<OsString>>()
 });
 
-pub const COMMITS_DIR: &str = ".commits";
+pub static IGNORE_ALL: LazyLock<HashSet<OsString>> = LazyLock::new(|| {
+    IGNORE
+        .union(&HashSet::from([
+            OsString::from(&*POD_DIR),
+            OsString::from(&*COMMITS_DIR),
+        ]))
+        .cloned()
+        .collect::<HashSet<_>>()
+});
 
-pub const CHANGES_DIR: &str = "changes";
-pub const FILES_DIR: &str = "files";
+pub static COMMITS_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from(".commits"));
+
+pub static CHANGES_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("changes"));
+pub static FILES_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("files"));
+pub static DIRS_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("dirs"));
+pub static TMP_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("tmp"));

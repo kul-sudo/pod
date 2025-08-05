@@ -1,11 +1,12 @@
 use crate::consts::*;
-use crate::walk_dir::{WalkMethod, walk_dir};
+use crate::copy_all;
 use std::{
     collections::{HashMap, HashSet},
-    fs::read,
+    fs::{create_dir, exists, read, read_dir, read_to_string},
     iter::{repeat_n, zip},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
+use walkdir::WalkDir;
 
 #[derive(Clone)]
 pub enum Change {
@@ -23,47 +24,108 @@ pub struct Commit {
 
 impl Commit {
     pub fn new() -> Commit {
-        let mut current_dirs = HashSet::new();
-        walk_dir(CURRENT_DIR.into(), &mut current_dirs, WalkMethod::Dirs);
-        let current_dirs = current_dirs
-            .iter()
-            .map(|x| x.strip_prefix(CURRENT_DIR).unwrap().to_path_buf())
+        let current_dirs = WalkDir::new(&*CURRENT_DIR)
+            .into_iter()
+            .filter_entry(|entry| {
+                let path = entry.path();
+                path == *CURRENT_DIR
+                    || path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap())
+            })
+            .map(|entry| {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                path.strip_prefix(&*CURRENT_DIR).unwrap().to_path_buf()
+            })
             .collect::<HashSet<_>>();
 
-        let mut initial_dirs = HashSet::new();
-        walk_dir(PathBuf::from(POD_DIR), &mut initial_dirs, WalkMethod::Dirs);
-        let initial_dirs = initial_dirs
-            .iter()
-            .map(|x| x.strip_prefix(POD_DIR).unwrap().to_path_buf())
+        // let mut initial_dir;
+        let commits_dir_path = POD_DIR.join(&*COMMITS_DIR);
+        let mut initial_dir;
+
+        if exists(&commits_dir_path).unwrap() {
+            let tmp_dir_path = POD_DIR.join(&*TMP_DIR);
+            create_dir(&tmp_dir_path).unwrap();
+            copy_all(&POD_DIR, &tmp_dir_path);
+
+            initial_dir = tmp_dir_path.clone();
+
+            let mut commits_sorted = read_dir(commits_dir_path)
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect::<Vec<_>>();
+            commits_sorted
+                .sort_by_key(|dir| dir.file_name().to_string_lossy().parse::<u128>().unwrap());
+
+            for commit in &commits_sorted {
+                let commit_path = commit.path();
+
+                let commit_dirs_path = commit_path.join(&*DIRS_FILE);
+                if exists(&commit_dirs_path).unwrap() {
+                    for line in read_to_string(commit_dirs_path).unwrap().lines() {
+                        let (operation, path) = line.split_once(' ').unwrap();
+                        let relative = tmp_dir_path.join(path);
+                        // dbg!(relative);
+                        match operation {
+                            "+" => create_dir(relative).unwrap(),
+                            "-" => {}
+                            _ => unreachable!(),
+                        }
+                        dbg!(operation, path);
+                    }
+                }
+
+                let commit_files = commit_path.join(&*FILES_FILE);
+            }
+        } else {
+            initial_dir = POD_DIR.clone()
+        };
+        initial_dir = POD_DIR.clone();
+
+        let initial_dirs = WalkDir::new(&*POD_DIR)
+            .into_iter()
+            .filter_entry(|entry| {
+                let path = entry.path();
+                path == *POD_DIR || path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap())
+            })
+            .map(|entry| {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                path.strip_prefix(&*POD_DIR).unwrap().to_path_buf()
+            })
             .collect::<HashSet<_>>();
+
+        let mut current_files = HashSet::new();
+        for dir in &current_dirs {
+            for entry in read_dir(CURRENT_DIR.join(dir)).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if !path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap()) {
+                    current_files.insert(path.strip_prefix(&*CURRENT_DIR).unwrap().to_path_buf());
+                }
+            }
+        }
+
+        let mut initial_files = HashSet::new();
+        for dir in &initial_dirs {
+            for entry in read_dir(POD_DIR.join(dir)).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if !path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap()) {
+                    initial_files.insert(path.strip_prefix(&*POD_DIR).unwrap().to_path_buf());
+                }
+            }
+        }
+
+        dbg!(&initial_files, &current_files);
 
         let new_dirs = current_dirs
             .difference(&initial_dirs)
             .cloned()
             .collect::<HashSet<_>>();
+
         let removed_dirs = initial_dirs
             .difference(&current_dirs)
             .cloned()
-            .collect::<HashSet<_>>();
-
-        let mut current_files = HashSet::new();
-        walk_dir(CURRENT_DIR.into(), &mut current_files, WalkMethod::Files);
-
-        let mut initial_files = HashSet::new();
-        walk_dir(
-            PathBuf::from(POD_DIR),
-            &mut initial_files,
-            WalkMethod::Files,
-        );
-
-        let current_files = current_files
-            .iter()
-            .map(|x| x.strip_prefix(CURRENT_DIR).unwrap().to_path_buf())
-            .collect::<HashSet<_>>();
-
-        let initial_files = initial_files
-            .iter()
-            .map(|x| x.strip_prefix(POD_DIR).unwrap().to_path_buf())
             .collect::<HashSet<_>>();
 
         let removed_files = initial_files
@@ -76,8 +138,8 @@ impl Commit {
 
         for file in &current_files {
             if initial_files.contains(file) {
-                let current_content = read(PathBuf::from(CURRENT_DIR).join(file)).unwrap();
-                let initial_content = read(PathBuf::from(POD_DIR).join(file)).unwrap();
+                let current_content = read(CURRENT_DIR.join(file)).unwrap();
+                let initial_content = read(POD_DIR.join(file)).unwrap();
 
                 for (index, (current_line, initial_line)) in zip(
                     current_content.iter().map(Some).chain(repeat_n(
@@ -115,7 +177,7 @@ impl Commit {
                         .or_insert(vec![action]);
                 }
             } else {
-                let content = read(PathBuf::from(CURRENT_DIR).join(file)).unwrap();
+                let content = read(CURRENT_DIR.join(file)).unwrap();
 
                 let changes = content
                     .iter()

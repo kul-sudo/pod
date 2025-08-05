@@ -1,37 +1,50 @@
 mod commit;
 mod consts;
-mod walk_dir;
 
 use crate::commit::{Change, Commit};
-use crate::walk_dir::{WalkMethod, walk_dir};
 use consts::*;
 use hex::encode;
 use std::{
-    collections::HashSet,
     env::var,
-    fs::{copy, create_dir, create_dir_all, exists, read_dir, write},
+    fs::{copy, create_dir, create_dir_all, exists, write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
+use walkdir::WalkDir;
 
 enum Mode {
     Init,
     Commit,
 }
 
-fn create_pod() {
-    let mut current_files = HashSet::new();
-    walk_dir(CURRENT_DIR.into(), &mut current_files, WalkMethod::Files);
+pub fn copy_all(source: &PathBuf, dest: &PathBuf) {
+    for entry in WalkDir::new(&source).into_iter().filter_entry(|entry| {
+        let path = entry.path();
 
-    for file in &current_files {
-        let dest = PathBuf::from(POD_DIR).join(file.strip_prefix(CURRENT_DIR).unwrap());
-        create_dir_all(dest.parent().unwrap()).unwrap();
-        copy(file, dest).unwrap();
+        match path.file_name() {
+            Some(name) => !IGNORE_ALL.contains(name),
+            None => true,
+        }
+    }) {
+        let file = entry.unwrap();
+        let path = file.path();
+
+        let relative = dest.join(path.strip_prefix(&source).unwrap());
+
+        if path.is_dir() {
+            create_dir_all(relative).unwrap();
+        } else {
+            copy(path, relative).unwrap();
+        }
     }
 }
 
+fn create_pod() {
+    copy_all(&CURRENT_DIR, &POD_DIR);
+}
+
 fn main() {
-    let initialized = exists(POD_DIR).unwrap();
+    let initialized = exists(&*POD_DIR).unwrap();
     let mode = match var("MODE").expect("MODE not provided.").as_str() {
         "INIT" => {
             if initialized {
@@ -53,7 +66,7 @@ fn main() {
             create_pod();
         }
         Mode::Commit => {
-            let commits_dir_path = Path::new(POD_DIR).join(Path::new(COMMITS_DIR));
+            let commits_dir_path = POD_DIR.join(&*COMMITS_DIR);
             if !exists(&commits_dir_path).unwrap() {
                 create_dir(&commits_dir_path).unwrap();
             }
@@ -64,10 +77,10 @@ fn main() {
                 .as_nanos()
                 .to_string();
 
+            let commit = Commit::new();
+
             let commit_dir_path = commits_dir_path.join(time);
             create_dir(&commit_dir_path).unwrap();
-
-            let commit = Commit::new();
 
             // Handle directories
             if !commit.removed_dirs.is_empty() || !commit.new_dirs.is_empty() {
@@ -83,7 +96,7 @@ fn main() {
                     )
                     .collect::<String>();
 
-                write(commit_dir_path.join("dirs"), dirs_list).unwrap();
+                write(commit_dir_path.join(&*DIRS_FILE), dirs_list).unwrap();
             }
 
             // Handle files
@@ -100,28 +113,25 @@ fn main() {
                     )
                     .collect::<String>();
 
-                write(commit_dir_path.join(FILES_DIR), files_list).unwrap();
+                write(commit_dir_path.join(&*FILES_FILE), files_list).unwrap();
             }
 
-            // Handle changes in files
+            // Handle changss in files
             if !commit.changed_files.is_empty() {
-                let changes_dir_path = Path::new(&commit_dir_path).join(Path::new(CHANGES_DIR));
+                let changes_dir_path = commit_dir_path.join(&*CHANGES_DIR);
                 if !exists(&changes_dir_path).unwrap() {
                     create_dir(&changes_dir_path).unwrap();
                 }
-                //
-                // dbg!(&commit.changed_files);
-                // dbg!(commit.changed_files.keys().collect::<Vec<_>>());
 
                 for (name, changes) in &commit.changed_files {
                     let changes_list = changes
                         .iter()
                         .map(|(index, line)| match line {
                             Change::Update(line) => {
-                                format!("{} {}\n", index, line)
+                                format!("{index} {line}\n")
                             }
                             Change::Delete => {
-                                format!("- {}\n", index)
+                                format!("- {index}\n")
                             }
                         })
                         .collect::<String>();
