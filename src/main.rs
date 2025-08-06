@@ -21,10 +21,7 @@ pub fn copy_all(source: &PathBuf, dest: &PathBuf) {
     for entry in WalkDir::new(&source).into_iter().filter_entry(|entry| {
         let path = entry.path();
 
-        match path.file_name() {
-            Some(name) => !IGNORE_ALL.contains(name),
-            None => true,
-        }
+        !IGNORE_ALL.contains(path.file_name().unwrap())
     }) {
         let file = entry.unwrap();
         let path = file.path();
@@ -40,6 +37,7 @@ pub fn copy_all(source: &PathBuf, dest: &PathBuf) {
 }
 
 fn create_pod() {
+    dbg!(&CURRENT_DIR, &POD_DIR);
     copy_all(&CURRENT_DIR, &POD_DIR);
 }
 
@@ -66,9 +64,8 @@ fn main() {
             create_pod();
         }
         Mode::Commit => {
-            let commits_dir_path = POD_DIR.join(&*COMMITS_DIR);
-            if !exists(&commits_dir_path).unwrap() {
-                create_dir(&commits_dir_path).unwrap();
+            if !exists(&*COMMITS_DIR).unwrap() {
+                create_dir(&*COMMITS_DIR).unwrap();
             }
 
             let time = SystemTime::now()
@@ -79,7 +76,7 @@ fn main() {
 
             let commit = Commit::new();
 
-            let commit_dir_path = commits_dir_path.join(time);
+            let commit_dir_path = COMMITS_DIR.join(time);
             create_dir(&commit_dir_path).unwrap();
 
             // Handle directories

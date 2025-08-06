@@ -2,7 +2,7 @@ use crate::consts::*;
 use crate::copy_all;
 use std::{
     collections::{HashMap, HashSet},
-    fs::{create_dir, exists, read, read_dir, read_to_string},
+    fs::{create_dir, exists, read, read_dir, read_to_string, remove_dir_all},
     iter::{repeat_n, zip},
     path::{Path, PathBuf},
 };
@@ -28,8 +28,7 @@ impl Commit {
             .into_iter()
             .filter_entry(|entry| {
                 let path = entry.path();
-                path == *CURRENT_DIR
-                    || path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap())
+                path == *CURRENT_DIR || path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap())
             })
             .map(|entry| {
                 let entry = entry.unwrap();
@@ -39,31 +38,29 @@ impl Commit {
             .collect::<HashSet<_>>();
 
         // let mut initial_dir;
-        let commits_dir_path = POD_DIR.join(&*COMMITS_DIR);
         let mut initial_dir;
 
-        if exists(&commits_dir_path).unwrap() {
-            let tmp_dir_path = POD_DIR.join(&*TMP_DIR);
-            create_dir(&tmp_dir_path).unwrap();
-            copy_all(&POD_DIR, &tmp_dir_path);
-
-            initial_dir = tmp_dir_path.clone();
-
-            let mut commits_sorted = read_dir(commits_dir_path)
+        if exists(&*COMMITS_DIR).unwrap() {
+            let mut commits_sorted = read_dir(&*COMMITS_DIR)
                 .unwrap()
                 .map(|x| x.unwrap())
                 .collect::<Vec<_>>();
             commits_sorted
                 .sort_by_key(|dir| dir.file_name().to_string_lossy().parse::<u128>().unwrap());
 
-            for commit in &commits_sorted {
+            create_dir(&*TMP_DIR).unwrap();
+            copy_all(&POD_DIR, &TMP_DIR);
+
+            initial_dir = TMP_DIR.clone();
+
+            for ommit in &commits_sorted {
                 let commit_path = commit.path();
 
                 let commit_dirs_path = commit_path.join(&*DIRS_FILE);
                 if exists(&commit_dirs_path).unwrap() {
                     for line in read_to_string(commit_dirs_path).unwrap().lines() {
                         let (operation, path) = line.split_once(' ').unwrap();
-                        let relative = tmp_dir_path.join(path);
+                        let relative = TMP_DIR.join(path);
                         // dbg!(relative);
                         match operation {
                             "+" => create_dir(relative).unwrap(),
@@ -76,6 +73,8 @@ impl Commit {
 
                 let commit_files = commit_path.join(&*FILES_FILE);
             }
+
+            remove_dir_all(&*TMP_DIR).unwrap();
         } else {
             initial_dir = POD_DIR.clone()
         };
