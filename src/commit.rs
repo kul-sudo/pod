@@ -2,7 +2,8 @@ use crate::consts::*;
 use crate::copy_all;
 use std::{
     collections::{HashMap, HashSet},
-    fs::{create_dir, exists, read, read_dir, read_to_string, remove_dir_all},
+    fs::File,
+    fs::{create_dir, exists, read, read_dir, read_to_string, remove_dir_all, remove_file},
     iter::{repeat_n, zip},
     path::{Path, PathBuf},
 };
@@ -28,7 +29,8 @@ impl Commit {
             .into_iter()
             .filter_entry(|entry| {
                 let path = entry.path();
-                path == *CURRENT_DIR || path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap())
+                path == *CURRENT_DIR
+                    || path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap())
             })
             .map(|entry| {
                 let entry = entry.unwrap();
@@ -37,10 +39,7 @@ impl Commit {
             })
             .collect::<HashSet<_>>();
 
-        // let mut initial_dir;
-        let mut initial_dir;
-
-        if exists(&*COMMITS_DIR).unwrap() {
+        let initial_dir = if exists(&*COMMITS_DIR).unwrap() {
             let mut commits_sorted = read_dir(&*COMMITS_DIR)
                 .unwrap()
                 .map(|x| x.unwrap())
@@ -51,9 +50,7 @@ impl Commit {
             create_dir(&*TMP_DIR).unwrap();
             copy_all(&POD_DIR, &TMP_DIR);
 
-            initial_dir = TMP_DIR.clone();
-
-            for ommit in &commits_sorted {
+            for commit in &commits_sorted {
                 let commit_path = commit.path();
 
                 let commit_dirs_path = commit_path.join(&*DIRS_FILE);
@@ -61,35 +58,51 @@ impl Commit {
                     for line in read_to_string(commit_dirs_path).unwrap().lines() {
                         let (operation, path) = line.split_once(' ').unwrap();
                         let relative = TMP_DIR.join(path);
-                        // dbg!(relative);
-                        match operation {
-                            "+" => create_dir(relative).unwrap(),
-                            "-" => {}
+                        (match operation {
+                            "+" => create_dir,
+                            "-" => remove_dir_all,
                             _ => unreachable!(),
-                        }
-                        dbg!(operation, path);
+                        })(relative)
+                        .unwrap();
                     }
                 }
 
-                let commit_files = commit_path.join(&*FILES_FILE);
+                let commit_files_path = commit_path.join(&*FILES_FILE);
+                if exists(&commit_files_path).unwrap() {
+                    for line in read_to_string(commit_files_path).unwrap().lines() {
+                        let (operation, path) = line.split_once(' ').unwrap();
+                        let relative = TMP_DIR.join(path);
+                        match operation {
+                            "+" => {
+                                File::create(relative).unwrap();
+                            }
+                            "-" => {
+                                remove_file(relative).unwrap();
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
             }
 
-            remove_dir_all(&*TMP_DIR).unwrap();
+            TMP_DIR.clone()
         } else {
-            initial_dir = POD_DIR.clone()
+            POD_DIR.clone()
         };
-        initial_dir = POD_DIR.clone();
 
-        let initial_dirs = WalkDir::new(&*POD_DIR)
+        let initial_dirs = WalkDir::new(&initial_dir)
             .into_iter()
             .filter_entry(|entry| {
                 let path = entry.path();
-                path == *POD_DIR || path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap())
+                path == initial_dir
+                    || path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap())
             })
             .map(|entry| {
                 let entry = entry.unwrap();
                 let path = entry.path();
-                path.strip_prefix(&*POD_DIR).unwrap().to_path_buf()
+                path.strip_prefix(initial_dir.clone())
+                    .unwrap()
+                    .to_path_buf()
             })
             .collect::<HashSet<_>>();
 
@@ -106,11 +119,11 @@ impl Commit {
 
         let mut initial_files = HashSet::new();
         for dir in &initial_dirs {
-            for entry in read_dir(POD_DIR.join(dir)).unwrap() {
+            for entry in read_dir(initial_dir.join(dir)).unwrap() {
                 let entry = entry.unwrap();
                 let path = entry.path();
                 if !path.is_dir() && !IGNORE_ALL.contains(path.file_name().unwrap()) {
-                    initial_files.insert(path.strip_prefix(&*POD_DIR).unwrap().to_path_buf());
+                    initial_files.insert(path.strip_prefix(&initial_dir).unwrap().to_path_buf());
                 }
             }
         }
@@ -138,7 +151,7 @@ impl Commit {
         for file in &current_files {
             if initial_files.contains(file) {
                 let current_content = read(CURRENT_DIR.join(file)).unwrap();
-                let initial_content = read(POD_DIR.join(file)).unwrap();
+                let initial_content = read(initial_dir.join(file)).unwrap();
 
                 for (index, (current_line, initial_line)) in zip(
                     current_content.iter().map(Some).chain(repeat_n(

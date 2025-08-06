@@ -23,6 +23,7 @@ pub static IGNORE_ALL: LazyLock<HashSet<OsString>> = LazyLock::new(|| {
         .union(&HashSet::from([
             OsString::from(POD_DIR_CORE),
             OsString::from(COMMITS_DIR_CORE),
+            OsString::from(TMP_DIR_CORE),
         ]))
         .cloned()
         .collect::<HashSet<_>>()
@@ -35,5 +36,6 @@ pub static COMMITS_DIR: LazyLock<PathBuf> =
 pub static CHANGES_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("changes"));
 pub static FILES_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("files"));
 pub static DIRS_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("dirs"));
-pub static TMP_DIR: LazyLock<PathBuf> =
-    LazyLock::new(|| PathBuf::from(CURRENT_DIR.join(&*POD_DIR).join(".tmp")));
+
+const TMP_DIR_CORE: &str = ".tmp";
+pub static TMP_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from(POD_DIR.join(TMP_DIR_CORE)));

@@ -21,7 +21,7 @@ pub fn copy_all(source: &PathBuf, dest: &PathBuf) {
     for entry in WalkDir::new(&source).into_iter().filter_entry(|entry| {
         let path = entry.path();
 
-        !IGNORE_ALL.contains(path.file_name().unwrap())
+        path == source || !IGNORE_ALL.contains(path.file_name().unwrap())
     }) {
         let file = entry.unwrap();
         let path = file.path();
