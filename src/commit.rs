@@ -67,6 +67,7 @@ impl Commit {
                     }
                 }
 
+                let mut tmp = HashSet::new();
                 let commit_files_path = commit_path.join(&*FILES_FILE);
                 if exists(&commit_files_path).unwrap() {
                     for line in read_to_string(commit_files_path).unwrap().lines() {
@@ -74,13 +75,14 @@ impl Commit {
                         let relative = TMP_DIR.join(path);
                         match operation {
                             "+" => {
-                                File::create(relative).unwrap();
+                                File::create(&relative).unwrap();
                             }
                             "-" => {
-                                remove_file(relative).unwrap();
+                                remove_file(&relative).unwrap();
                             }
                             _ => unreachable!(),
                         }
+                        tmp.insert(relative);
                     }
                 }
 
@@ -97,7 +99,7 @@ impl Commit {
 
                         let relative = TMP_DIR.join(file);
 
-                        if exists(&relative).unwrap() {
+                        if !tmp.contains(&relative) {
                             let b = read(&relative).unwrap();
                             let mut bytes = b.iter().cloned().map(Some).collect::<Vec<_>>();
                             for line in changes.lines() {
@@ -122,7 +124,6 @@ impl Commit {
                                 .lines()
                                 .map(|line| line.split_once(' ').unwrap().1.parse::<u8>().unwrap())
                                 .collect::<Vec<_>>();
-                            dbg!(String::from_utf8(bytes.clone()).unwrap());
                             write(relative, bytes).unwrap();
                         }
                     }
