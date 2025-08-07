@@ -16,7 +16,6 @@ pub enum Change {
 }
 
 pub struct Commit {
-    pub new_files: HashSet<PathBuf>,
     pub removed_files: HashSet<PathBuf>,
     pub new_dirs: HashSet<PathBuf>,
     pub removed_dirs: HashSet<PathBuf>,
@@ -67,22 +66,11 @@ impl Commit {
                     }
                 }
 
-                let mut tmp = HashSet::new();
-                let commit_files_path = commit_path.join(&*FILES_FILE);
+                let commit_files_path = commit_path.join(&*REMOVED_FILES_FILE);
                 if exists(&commit_files_path).unwrap() {
-                    for line in read_to_string(commit_files_path).unwrap().lines() {
-                        let (operation, path) = line.split_once(' ').unwrap();
+                    for path in read_to_string(commit_files_path).unwrap().lines() {
                         let relative = TMP_DIR.join(path);
-                        match operation {
-                            "+" => {
-                                File::create(&relative).unwrap();
-                            }
-                            "-" => {
-                                remove_file(&relative).unwrap();
-                            }
-                            _ => unreachable!(),
-                        }
-                        tmp.insert(relative);
+                        remove_file(&relative).unwrap();
                     }
                 }
 
@@ -99,7 +87,7 @@ impl Commit {
 
                         let relative = TMP_DIR.join(file);
 
-                        if !tmp.contains(&relative) {
+                        if exists(&relative).unwrap() {
                             let b = read(&relative).unwrap();
                             let mut bytes = b.iter().cloned().map(Some).collect::<Vec<_>>();
                             for line in changes.lines() {
@@ -181,7 +169,6 @@ impl Commit {
             .cloned()
             .collect::<HashSet<_>>();
 
-        let mut new_files = HashSet::new();
         let mut changed_files = HashMap::new();
 
         for file in &current_files {
@@ -232,14 +219,12 @@ impl Commit {
                     .collect::<Vec<_>>();
 
                 changed_files.insert(file.clone(), changes);
-                new_files.insert(file.clone());
             }
         }
 
         remove_dir_all(&*TMP_DIR).unwrap();
 
         Commit {
-            new_files,
             removed_files,
             new_dirs,
             removed_dirs,

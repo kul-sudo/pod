@@ -96,20 +96,14 @@ fn main() {
             }
 
             // Handle files
-            if !commit.removed_files.is_empty() || !commit.new_files.is_empty() {
+            if !commit.removed_files.is_empty() {
                 let files_list = commit
                     .removed_files
                     .iter()
-                    .map(|file| format!("- {}\n", file.to_str().unwrap()))
-                    .chain(
-                        commit
-                            .new_files
-                            .iter()
-                            .map(|file| format!("+ {}\n", file.to_str().unwrap())),
-                    )
+                    .map(|file| format!("{}\n", file.to_str().unwrap()))
                     .collect::<String>();
 
-                write(commit_dir_path.join(&*FILES_FILE), files_list).unwrap();
+                write(commit_dir_path.join(&*REMOVED_FILES_FILE), files_list).unwrap();
             }
 
             // Handle changss in files

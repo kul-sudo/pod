@@ -34,7 +34,7 @@ pub static COMMITS_DIR: LazyLock<PathBuf> =
     LazyLock::new(|| CURRENT_DIR.join(&*POD_DIR).join(COMMITS_DIR_CORE));
 
 pub static CHANGES_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("changes"));
-pub static FILES_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("files"));
+pub static REMOVED_FILES_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("removed_files"));
 pub static DIRS_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("dirs"));
 
 const TMP_DIR_CORE: &str = ".tmp";
