@@ -3,7 +3,7 @@ use std::{
     sync::LazyLock,
 };
 
-pub static CURRENT_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from(current_dir().unwrap()));
+pub static CURRENT_DIR: LazyLock<PathBuf> = LazyLock::new(|| current_dir().unwrap());
 
 const POD_DIR_CORE: &str = ".pod";
 pub static POD_DIR: LazyLock<PathBuf> = LazyLock::new(|| CURRENT_DIR.join(POD_DIR_CORE));
@@ -31,11 +31,11 @@ pub static IGNORE_ALL: LazyLock<HashSet<OsString>> = LazyLock::new(|| {
 
 const COMMITS_DIR_CORE: &str = ".commits";
 pub static COMMITS_DIR: LazyLock<PathBuf> =
-    LazyLock::new(|| PathBuf::from(CURRENT_DIR.join(&*POD_DIR).join(COMMITS_DIR_CORE)));
+    LazyLock::new(|| CURRENT_DIR.join(&*POD_DIR).join(COMMITS_DIR_CORE));
 
 pub static CHANGES_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("changes"));
 pub static FILES_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("files"));
 pub static DIRS_FILE: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("dirs"));
 
 const TMP_DIR_CORE: &str = ".tmp";
-pub static TMP_DIR: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from(POD_DIR.join(TMP_DIR_CORE)));
+pub static TMP_DIR: LazyLock<PathBuf> = LazyLock::new(|| POD_DIR.join(TMP_DIR_CORE));

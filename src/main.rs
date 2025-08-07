@@ -7,7 +7,7 @@ use hex::encode;
 use std::{
     env::var,
     fs::{copy, create_dir, create_dir_all, exists, write},
-    path::{Path, PathBuf},
+    path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
 use walkdir::WalkDir;
@@ -17,8 +17,8 @@ enum Mode {
     Commit,
 }
 
-pub fn copy_all(source: &PathBuf, dest: &PathBuf) {
-    for entry in WalkDir::new(&source).into_iter().filter_entry(|entry| {
+pub fn copy_all(source: &Path, dest: &Path) {
+    for entry in WalkDir::new(source).into_iter().filter_entry(|entry| {
         let path = entry.path();
 
         path == source || !IGNORE_ALL.contains(path.file_name().unwrap())
@@ -26,7 +26,7 @@ pub fn copy_all(source: &PathBuf, dest: &PathBuf) {
         let file = entry.unwrap();
         let path = file.path();
 
-        let relative = dest.join(path.strip_prefix(&source).unwrap());
+        let relative = dest.join(path.strip_prefix(source).unwrap());
 
         if path.is_dir() {
             create_dir_all(relative).unwrap();
@@ -37,7 +37,6 @@ pub fn copy_all(source: &PathBuf, dest: &PathBuf) {
 }
 
 fn create_pod() {
-    dbg!(&CURRENT_DIR, &POD_DIR);
     copy_all(&CURRENT_DIR, &POD_DIR);
 }
 
@@ -84,12 +83,12 @@ fn main() {
                 let dirs_list = commit
                     .removed_dirs
                     .iter()
-                    .map(|dir| format!("- {}\n", dir.to_string_lossy()))
+                    .map(|dir| format!("- {}\n", dir.to_str().unwrap()))
                     .chain(
                         commit
                             .new_dirs
                             .iter()
-                            .map(|dir| format!("+ {}\n", dir.to_string_lossy())),
+                            .map(|dir| format!("+ {}\n", dir.to_str().unwrap())),
                     )
                     .collect::<String>();
 
@@ -101,12 +100,12 @@ fn main() {
                 let files_list = commit
                     .removed_files
                     .iter()
-                    .map(|file| format!("- {}\n", file.to_string_lossy()))
+                    .map(|file| format!("- {}\n", file.to_str().unwrap()))
                     .chain(
                         commit
                             .new_files
                             .iter()
-                            .map(|file| format!("+ {}\n", file.to_string_lossy())),
+                            .map(|file| format!("+ {}\n", file.to_str().unwrap())),
                     )
                     .collect::<String>();
 
@@ -133,7 +132,7 @@ fn main() {
                         })
                         .collect::<String>();
                     write(
-                        changes_dir_path.join(encode(name.to_string_lossy().to_string())),
+                        changes_dir_path.join(encode(name.to_str().unwrap())),
                         changes_list,
                     )
                     .unwrap();
